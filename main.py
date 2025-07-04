@@ -5,24 +5,31 @@ import requests
 from dotenv import load_dotenv
 import logging
 
-# Configura logging
-logging.basicConfig(filename='app.log', level=logging.INFO)
+# Configura logging en consola
+logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
 app = Flask(__name__)
 
-OR_API_KEY = os.getenv("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")
-WP_URL = os.getenv("https://affge.com/bot")
+OR_API_KEY = os.getenv("OPENROUTER_API_KEY")
+WP_URL = os.getenv("WORDPRESS_URL")
 OR_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Lista de servicios disponibles (hardcoded para Amelia Lite)
+# Lista de servicios disponibles (hardcoded para pruebas iniciales)
 SERVICES = [
     "Medicina Familiar (Dr. Jhonny Calahorrano)",
     "Diabetología (Dr. Jhonny Calahorrano)",
     "Geriatría (Dr. Jhonny Calahorrano)",
     "Cuidados Paliativos (Dr. Jhonny Calahorrano)",
     "Inmunología y Reumatología (Dr. Jhonny Calahorrano)",
-    "Alergología (Dr. Jhonny Calahorrano)"
+    "Alergología (Dr. Jhonny Calahorrano)",
+    "Pediatría (Dra. Lizbeth Díaz)",
+    "Ginecología (Dra. Lizbeth Díaz)",
+    "Nutrición Clínica (Dra. Lizbeth Díaz)",
+    "Nutrición Pediátrica (Dra. Lizbeth Díaz)",
+    "Cosmetología (Cosm. Jessica Gavilanes)",
+    "Cosmeatría (Cosm. Jessica Gavilanes)",
+    "Medicina Estética (Cosm. Jessica Gavilanes)"
 ]
 
 @app.route("/webhook", methods=["POST"])
@@ -37,6 +44,12 @@ def webhook():
         twilio_resp.message("Por favor, envía un mensaje válido.")
         return str(twilio_resp)
 
+    if not OR_API_KEY or not WP_URL:
+        logging.error("❌ OPENROUTER_API_KEY o WORDPRESS_URL no están configurados")
+        twilio_resp = MessagingResponse()
+        twilio_resp.message("Error de configuración del bot. Contacta al administrador.")
+        return str(twilio_resp)
+
     headers = {
         "Authorization": f"Bearer {OR_API_KEY}",
         "Content-Type": "application/json",
@@ -44,7 +57,6 @@ def webhook():
         "X-Title": "Asistente Médico"
     }
 
-    # Preparar lista de servicios para el prompt
     service_list = "\n".join([f"- {service}" for service in SERVICES])
     booking_url = f"{WP_URL}/reservas"
 

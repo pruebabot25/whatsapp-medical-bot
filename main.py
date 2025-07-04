@@ -1,35 +1,3 @@
-from flask import Flask, request
-from twilio.twiml.messaging_response import MessagingResponse
-import os
-import requests
-from dotenv import load_dotenv
-import logging
-
-logging.basicConfig(level=logging.INFO)
-
-load_dotenv()
-app = Flask(__name__)
-
-OR_API_KEY = os.getenv("OPENROUTER_API_KEY")
-WP_URL = os.getenv("WORDPRESS_URL")
-OR_BASE_URL = "https://openrouter.ai/api/v1"
-
-SERVICES = [
-    "Medicina Familiar (Dr. Jhonny Calahorrano)",
-    "Diabetología (Dr. Jhonny Calahorrano)",
-    "Geriatría (Dr. Jhonny Calahorrano)",
-    "Cuidados Paliativos (Dr. Jhonny Calahorrano)",
-    "Inmunología y Reumatología (Dr. Jhonny Calahorrano)",
-    "Alergología (Dr. Jhonny Calahorrano)",
-    "Pediatría (Dra. Lizbeth Díaz)",
-    "Ginecología (Dra. Lizbeth Díaz)",
-    "Nutrición Clínica (Dra. Lizbeth Díaz)",
-    "Nutrición Pediátrica (Dra. Lizbeth Díaz)",
-    "Cosmetología (Cosm. Jessica Gavilanes)",
-    "Cosmeatría (Cosm. Jessica Gavilanes)",
-    "Medicina Estética (Cosm. Jessica Gavilanes)"
-]
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     incoming_msg = request.form.get("Body", "").strip()
@@ -37,44 +5,31 @@ def webhook():
     logging.info(f"📩 Mensaje recibido de {sender}: {incoming_msg}")
 
     if not incoming_msg:
-        logging.warning("⚠️ Mensaje vacío recibido")
         twilio_resp = MessagingResponse()
         twilio_resp.message("Por favor, envía un mensaje válido.")
         return str(twilio_resp)
 
-    if not OR_API_KEY or not WP_URL:
-        logging.error("❌ OPENROUTER_API_KEY o WORDPRESS_URL no están configurados")
-        twilio_resp = MessagingResponse()
-        twilio_resp.message("Error de configuración del bot. Contacta al administrador.")
-        return str(twilio_resp)
+    # Comentamos esto porque aún no usamos WordPress
+    # if not OR_API_KEY or not WP_URL:
+    #     logging.error("❌ OPENROUTER_API_KEY o WORDPRESS_URL no están configurados")
+    #     twilio_resp = MessagingResponse()
+    #     twilio_resp.message("Error de configuración del bot. Contacta al administrador.")
+    #     return str(twilio_resp)
 
     headers = {
         "Authorization": f"Bearer {OR_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": f"{WP_URL}",
+        "HTTP-Referer": "https://tusitio.com",
         "X-Title": "Asistente Médico"
     }
 
-    service_list = "\n".join([f"- {service}" for service in SERVICES])
-    booking_url = f"{WP_URL}/reservas"
-
     payload = {
-        "model": "openrouter/cypher-alpha:free",
+        "model": "mistralai/mistral-7b-instruct:free",
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "Eres un asistente médico que ayuda a agendar citas de manera amable, clara y profesional. "
-                    "No puedes crear citas directamente, así que redirige a los usuarios al formulario de reservas. "
-                    "Pide detalles como servicio, fecha y hora si no los proporcionan. "
-                    "No almacenes datos personales sensibles. "
-                    f"Servicios disponibles:\n{service_list}\n"
-                    f"Formulario de reservas: {booking_url}"
-                )
-            },
+            {"role": "system", "content": "Eres un asistente médico que responde preguntas sobre citas médicas."},
             {"role": "user", "content": incoming_msg}
         ],
-        "max_tokens": 150
+        "max_tokens": 300
     }
 
     try:
@@ -92,6 +47,3 @@ def webhook():
     twilio_resp = MessagingResponse()
     twilio_resp.message(reply)
     return str(twilio_resp)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))

@@ -16,12 +16,10 @@ app = Flask(__name__)
 
 # Variables de entorno
 OR_API_KEY = os.getenv("OPENROUTER_API_KEY")
-WP_URL = os.getenv("WORDPRESS_URL")
 OR_BASE_URL = "https://openrouter.ai/api/v1"
 
 # 🔍 Logs para depuración de variables
 logging.info(f"🔍 OPENROUTER_API_KEY cargada: {bool(OR_API_KEY)}")
-logging.info(f"🔍 WORDPRESS_URL: {WP_URL}")
 
 # Lista de servicios médicos
 SERVICES = [
@@ -52,24 +50,22 @@ def webhook():
         twilio_resp.message("Por favor, envía un mensaje válido.")
         return str(twilio_resp)
 
-    # Verificar que las claves estén presentes
-    if not OR_API_KEY or not WP_URL:
-        logging.error("❌ OPENROUTER_API_KEY o WORDPRESS_URL no están configurados")
+    # Verificar que la clave esté presente
+    if not OR_API_KEY:
+        logging.error("❌ OPENROUTER_API_KEY no está configurada")
         twilio_resp = MessagingResponse()
         twilio_resp.message("Error de configuración del bot. Contacta al administrador.")
         return str(twilio_resp)
 
-    # Cabeceras para OpenRouter
+    # Cabeceras para OpenRouter (sin HTTP-Referer)
     headers = {
         "Authorization": f"Bearer {OR_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": WP_URL,
         "X-Title": "Asistente Médico"
     }
 
-    # Construcción del mensaje para el sistema
+    # Construcción del mensaje para el sistema (sin booking_url)
     service_list = "\n".join([f"- {service}" for service in SERVICES])
-    booking_url = f"{WP_URL}/reservas"
 
     payload = {
         "model": "openrouter/cypher-alpha:free",
@@ -80,8 +76,7 @@ def webhook():
                     "Eres un asistente médico que ayuda a agendar citas médicas de manera amable, clara y profesional.\n"
                     "No puedes agendar directamente, pero puedes dar orientación.\n"
                     "Pide al usuario que indique el servicio, fecha y hora deseados.\n"
-                    f"Servicios disponibles:\n{service_list}\n"
-                    f"Reserva aquí: {booking_url}"
+                    f"Servicios disponibles:\n{service_list}"
                 )
             },
             {"role": "user", "content": incoming_msg}

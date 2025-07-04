@@ -11,8 +11,8 @@ logging.basicConfig(filename='app.log', level=logging.INFO)
 load_dotenv()
 app = Flask(__name__)
 
-OR_API_KEY = os.getenv("OPENROUTER_API_KEY")
-WP_URL = os.getenv("WORDPRESS_URL")
+OR_API_KEY = os.getenv("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")
+WP_URL = os.getenv("https://affge.com/bot")
 OR_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Lista de servicios disponibles (hardcoded para Amelia Lite)

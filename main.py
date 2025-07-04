@@ -5,7 +5,6 @@ import requests
 from dotenv import load_dotenv
 import logging
 
-# Configura logging en consola
 logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
@@ -15,7 +14,6 @@ OR_API_KEY = os.getenv("OPENROUTER_API_KEY")
 WP_URL = os.getenv("WORDPRESS_URL")
 OR_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Lista de servicios disponibles (hardcoded para pruebas iniciales)
 SERVICES = [
     "Medicina Familiar (Dr. Jhonny Calahorrano)",
     "Diabetología (Dr. Jhonny Calahorrano)",

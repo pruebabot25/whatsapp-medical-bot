@@ -8,7 +8,7 @@ import logging
 # Configuración de logs
 logging.basicConfig(level=logging.INFO)
 
-# Cargar variables de entorno
+# Cargar variables de entorno desde .env (si estás local) o Render
 load_dotenv()
 
 # Inicializar Flask
@@ -18,6 +18,10 @@ app = Flask(__name__)
 OR_API_KEY = os.getenv("OPENROUTER_API_KEY")
 WP_URL = os.getenv("WORDPRESS_URL")
 OR_BASE_URL = "https://openrouter.ai/api/v1"
+
+# 🔍 Logs para depuración de variables
+logging.info(f"🔍 OPENROUTER_API_KEY cargada: {bool(OR_API_KEY)}")
+logging.info(f"🔍 WORDPRESS_URL: {WP_URL}")
 
 # Lista de servicios médicos
 SERVICES = [
@@ -48,12 +52,14 @@ def webhook():
         twilio_resp.message("Por favor, envía un mensaje válido.")
         return str(twilio_resp)
 
+    # Verificar que las claves estén presentes
     if not OR_API_KEY or not WP_URL:
         logging.error("❌ OPENROUTER_API_KEY o WORDPRESS_URL no están configurados")
         twilio_resp = MessagingResponse()
         twilio_resp.message("Error de configuración del bot. Contacta al administrador.")
         return str(twilio_resp)
 
+    # Cabeceras para OpenRouter
     headers = {
         "Authorization": f"Bearer {OR_API_KEY}",
         "Content-Type": "application/json",
@@ -61,6 +67,7 @@ def webhook():
         "X-Title": "Asistente Médico"
     }
 
+    # Construcción del mensaje para el sistema
     service_list = "\n".join([f"- {service}" for service in SERVICES])
     booking_url = f"{WP_URL}/reservas"
 
@@ -83,6 +90,7 @@ def webhook():
     }
 
     try:
+        logging.info("🚀 Enviando solicitud a OpenRouter...")
         response = requests.post(f"{OR_BASE_URL}/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -94,9 +102,11 @@ def webhook():
             logging.error(f"📨 Respuesta del servidor: {response.text}")
         reply = "Lo siento, hubo un problema. Intenta más tarde."
 
+    # Enviar respuesta a WhatsApp
     twilio_resp = MessagingResponse()
     twilio_resp.message(reply)
     return str(twilio_resp)
 
+# Ejecutar la app en Render
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))

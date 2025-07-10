@@ -128,6 +128,7 @@ def webhook():
             for day in data:
                 if day["date"] == target_date:
                     available_slots.extend(day["available_slots"])
+            logging.info(f"📅 Slots disponibles: {available_slots}")
             if 0 <= choice < len(available_slots):
                 selected_slot = f"{available_slots[choice]['start_date'][11:16]}-{available_slots[choice]['end_date'][11:16]}"
                 reply = f"¡Cita confirmada con {state['doctor']} el {state['date']} a las {selected_slot} (simulación). ¡Gracias!"

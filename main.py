@@ -17,13 +17,13 @@ load_dotenv()
 app = Flask(__name__)
 
 # Variables de entorno
-TWILIO_API_KEY = os.getenv("TWILIO_API_KEY")  # Asegúrate de tener esto en .env
+TWILIO_API_KEY = os.getenv("TWILIO_API_KEY")
 OR_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OR_BASE_URL = "https://openrouter.ai/api/v1"
 BOOKLY_API_BASE = "https://affge.com/bot/wp-json/booklycustom/v1"
-BOOKLY_API_KEY = "5bc2aa445c35047edb64414952eb53da"  # Usa la clave del plugin
+BOOKLY_API_KEY = "5bc2aa445c35047edb64414952eb53da"
 
-# Mapeo de servicios a staff_id (corregido)
+# Mapeo de servicios a staff_id
 SERVICES = {
     "medicina familiar": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
     "diabetología": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
@@ -40,8 +40,8 @@ SERVICES = {
     "medicina estética": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3}
 }
 
-# Estado de los usuarios (simplificado, en memoria)
-user_states = defaultdict(lambda: {"waiting_for_slot": False, "doctor": None, "date": None})
+# Estado de los usuarios
+user_states = defaultdict(lambda: {"waiting_for_slot": False, "doctor": None, "date": None, "available_slots": []})
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -63,10 +63,28 @@ def webhook():
         match = re.match(r"(\d{2}:\d{2}-\d{2}:\d{2})", incoming_msg)
         if match:
             selected_slot = match.group(1)
-            reply = f"¡Cita confirmada con {state['doctor']} el {state['date']} a las {selected_slot} (simulación). Gracias!"
+            # Verificar si el slot sigue disponible
+            staff_id = SERVICES[state["service"]]["staff_id"] if "service" in state else state["staff_id"]
+            url = f"{BOOKLY_API_BASE}/disponibilidad-doctor-{staff_id}?api_key={BOOKLY_API_KEY}"
+            try:
+                response = requests.get(url, headers={"Authorization": BOOKLY_API_KEY})
+                response.raise_for_status()
+                data = response.json()
+                current_slots = []
+                for day in data:
+                    if day["date"] == f"2025-{state['date'].split('/')[1]}-{state['date'].split('/')[0]}":
+                        current_slots.extend(day["available_slots"])
+                if any(selected_slot == slot["start_date"][11:16] + "-" + slot["end_date"][11:16] for slot in current_slots):
+                    reply = f"¡Cita confirmada con {state['doctor']} el {state['date']} a las {selected_slot} (simulación). Gracias!"
+                else:
+                    reply = f"El horario {selected_slot} ya no está disponible. Por favor, elige otro de: " + "\n".join([f"- {slot['start_date'][11:16]}-{slot['end_date'][11:16]}" for slot in current_slots])
+            except Exception as e:
+                logging.error(f"❌ Error al verificar disponibilidad: {e}")
+                reply = "Error al verificar disponibilidad. Intenta más tarde."
             state["waiting_for_slot"] = False
             state["doctor"] = None
             state["date"] = None
+            state["service"] = None
         else:
             reply = "Formato de horario incorrecto. Usa 'HH:MM-HH:MM' (ej. '08:30-09:00')."
         twilio_resp.message(reply)
@@ -76,7 +94,7 @@ def webhook():
     match = re.match(r"agendar\s+(.+?)\s+el\s+(\d{1,2}/\d{1,2})", incoming_msg)
     if match:
         service = match.group(1).strip()
-        date = match.group(2)  # Formato dd/mm (ej. 15/07)
+        date = match.group(2)
 
         if service in SERVICES:
             staff_id = SERVICES[service]["staff_id"]
@@ -87,10 +105,9 @@ def webhook():
                 response = requests.get(url, headers={"Authorization": BOOKLY_API_KEY})
                 response.raise_for_status()
                 data = response.json()
-                # Filtrar horarios para la fecha solicitada
                 available_slots = []
                 for day in data:
-                    if day["date"] == f"2025-{date.split('/')[1]}-{date.split('/')[0]}":  # Convertir a YYYY-MM-DD
+                    if day["date"] == f"2025-{date.split('/')[1]}-{date.split('/')[0]}":
                         available_slots.extend(day["available_slots"])
                 if available_slots:
                     slots_text = "\n".join([f"- {slot['start_date'][11:16]}-{slot['end_date'][11:16]}" for slot in available_slots])
@@ -98,6 +115,9 @@ def webhook():
                     state["waiting_for_slot"] = True
                     state["doctor"] = doctor
                     state["date"] = date
+                    state["staff_id"] = staff_id
+                    state["service"] = service
+                    state["available_slots"] = available_slots
                 else:
                     reply = f"No hay horarios disponibles con {doctor} el {date}. Intenta otra fecha."
             except Exception as e:

@@ -64,13 +64,17 @@ def webhook():
         reply = "¡Hola! ¿Te gustaría agendar una cita? Responde con 'sí' para continuar."
         state["step"] = "service_select"
     elif state["step"] == "service_select":
+        logging.info(f"Procesando 'service_select' para {sender} con mensaje: {incoming_msg}")
         if incoming_msg in ["sí", "si"]:
             service_options = "\n".join([f"{i+1}. {service}" for i, service in enumerate(SERVICES.keys())])
             reply = f"Genial! Elige un servicio:\n{service_options}\nEscribe el número (1-{len(SERVICES)})."
             state["step"] = "service_confirm"
+            logging.info(f"Transición a 'service_confirm' para {sender}")
         else:
             reply = "Por favor, responde 'sí' para agendar una cita."
+            logging.info(f"Respuesta inválida en 'service_select' para {sender}")
     elif state["step"] == "service_confirm":
+        logging.info(f"Procesando 'service_confirm' para {sender} con mensaje: {incoming_msg}")
         try:
             choice = int(incoming_msg) - 1
             services_list = list(SERVICES.keys())
@@ -82,11 +86,15 @@ def webhook():
                 date_options = "\n".join([f"{i+1}. {date.strftime('%d/%m')}" for i, date in enumerate(dates)])
                 reply = f"Has elegido {state['service']} con {state['doctor']}. Elige una fecha:\n{date_options}\nEscribe el número (1-15)."
                 state["step"] = "date_confirm"
+                logging.info(f"Transición a 'date_confirm' para {sender}")
             else:
                 reply = f"Número inválido. Elige un número entre 1 y {len(SERVICES)}."
+                logging.info(f"Número inválido en 'service_confirm' para {sender}")
         except ValueError:
             reply = "Por favor, escribe un número válido."
+            logging.info(f"Valor no numérico en 'service_confirm' para {sender}")
     elif state["step"] == "date_confirm":
+        logging.info(f"Procesando 'date_confirm' para {sender} con mensaje: {incoming_msg}")
         try:
             choice = int(incoming_msg) - 1
             dates = [datetime(2025, 7, 10) + timedelta(days=i) for i in range(15)]
@@ -107,15 +115,19 @@ def webhook():
                     note = "(Solo 08:00-12:00)" if dates[choice].weekday() == 6 else ""
                     reply = f"Horarios disponibles el {state['date']} {note}:\n{slots_text}\nElige un horario escribiendo el número (1-{len(available_slots)})."
                     state["step"] = "slot_confirm"
+                    logging.info(f"Transición a 'slot_confirm' para {sender}")
                 else:
                     reply = f"No hay horarios disponibles el {state['date']}. Elige otra fecha."
+                    logging.info(f"Sin horarios disponibles el {state['date']} para {sender}")
                     state["step"] = "date_confirm"
             else:
                 reply = "Número inválido. Elige un número entre 1 y 15."
+                logging.info(f"Número inválido en 'date_confirm' para {sender}")
         except (ValueError, requests.RequestException) as e:
             logging.error(f"❌ Error al obtener horarios: {e}")
             reply = "Error al obtener horarios. Intenta de nuevo."
     elif state["step"] == "slot_confirm":
+        logging.info(f"Procesando 'slot_confirm' para {sender} con mensaje: {incoming_msg}")
         try:
             choice = int(incoming_msg) - 1
             url = f"{BOOKLY_API_BASE}/disponibilidad-doctor-{state['staff_id']}?api_key={BOOKLY_API_KEY}"
@@ -137,14 +149,17 @@ def webhook():
                 state["doctor"] = None
                 state["staff_id"] = None
                 state["date"] = None
+                logging.info(f"Cita confirmada para {sender}")
             else:
                 reply = f"Número inválido. Elige un número entre 1 y {len(available_slots)}."
+                logging.info(f"Número inválido en 'slot_confirm' para {sender}")
         except (ValueError, requests.RequestException) as e:
             logging.error(f"❌ Error al confirmar cita: {e}")
             reply = "Error al confirmar la cita. Intenta de nuevo."
     else:
         reply = "Algo salió mal. Escribe 'sí' para empezar de nuevo."
         state["step"] = "start"
+        logging.info(f"Estado inválido reseteado para {sender}")
 
     twilio_resp.message(reply)
     return str(twilio_resp)

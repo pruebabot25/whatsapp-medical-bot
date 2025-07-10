@@ -41,7 +41,7 @@ SERVICES = {
 }
 
 # Estado de los usuarios
-user_states = defaultdict(lambda: {"waiting_for_slot": False, "doctor": None, "date": None, "available_slots": []})
+user_states = defaultdict(lambda: {"waiting_for_slot": False, "doctor": None, "date": None, "staff_id": None, "service": None})
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -64,14 +64,16 @@ def webhook():
         if match:
             selected_slot = match.group(1)
             # Verificar si el slot sigue disponible
-            staff_id = SERVICES[state["service"]]["staff_id"] if "service" in state else state["staff_id"]
+            staff_id = state["staff_id"]
             url = f"{BOOKLY_API_BASE}/disponibilidad-doctor-{staff_id}?api_key={BOOKLY_API_KEY}"
             try:
                 response = requests.get(url, headers={"Authorization": BOOKLY_API_KEY})
                 response.raise_for_status()
                 data = response.json()
+                logging.info(f"📅 Datos de API para verificación: {data}")  # Depuración
                 current_slots = []
                 for day in data:
+                    logging.info(f"📅 Día procesado: {day['date']}")  # Depuración
                     if day["date"] == f"2025-{state['date'].split('/')[1]}-{state['date'].split('/')[0]}":
                         current_slots.extend(day["available_slots"])
                 if any(selected_slot == slot["start_date"][11:16] + "-" + slot["end_date"][11:16] for slot in current_slots):
@@ -84,6 +86,7 @@ def webhook():
             state["waiting_for_slot"] = False
             state["doctor"] = None
             state["date"] = None
+            state["staff_id"] = None
             state["service"] = None
         else:
             reply = "Formato de horario incorrecto. Usa 'HH:MM-HH:MM' (ej. '08:30-09:00')."
@@ -105,8 +108,10 @@ def webhook():
                 response = requests.get(url, headers={"Authorization": BOOKLY_API_KEY})
                 response.raise_for_status()
                 data = response.json()
+                logging.info(f"📅 Datos de API iniciales: {data}")  # Depuración
                 available_slots = []
                 for day in data:
+                    logging.info(f"📅 Día procesado: {day['date']}")  # Depuración
                     if day["date"] == f"2025-{date.split('/')[1]}-{date.split('/')[0]}":
                         available_slots.extend(day["available_slots"])
                 if available_slots:
@@ -117,7 +122,6 @@ def webhook():
                     state["date"] = date
                     state["staff_id"] = staff_id
                     state["service"] = service
-                    state["available_slots"] = available_slots
                 else:
                     reply = f"No hay horarios disponibles con {doctor} el {date}. Intenta otra fecha."
             except Exception as e:

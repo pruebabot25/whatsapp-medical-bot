@@ -41,7 +41,7 @@ SERVICES = {
     "medicina estética": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3}
 }
 
-# Estado de los usuarios (simplificado)
+# Estado de los usuarios
 user_states = defaultdict(lambda: {"step": "start", "service": None, "doctor": None, "staff_id": None, "date": None})
 
 @app.route("/webhook", methods=["POST"])
@@ -64,7 +64,7 @@ def webhook():
         reply = "¡Hola! ¿Te gustaría agendar una cita? Responde con 'sí' para continuar."
         state["step"] = "service_select"
     elif state["step"] == "service_select":
-        if incoming_msg == "sí" or incoming_msg == "si":
+        if incoming_msg in ["sí", "si"]:
             service_options = "\n".join([f"{i+1}. {service}" for i, service in enumerate(SERVICES.keys())])
             reply = f"Genial! Elige un servicio:\n{service_options}\nEscribe el número (1-{len(SERVICES)})."
             state["step"] = "service_confirm"
@@ -78,12 +78,12 @@ def webhook():
                 state["service"] = services_list[choice]
                 state["doctor"] = SERVICES[state["service"]]["doctor"]
                 state["staff_id"] = SERVICES[state["service"]]["staff_id"]
-                dates = [d.strftime("%d/%m") for d in [datetime(2025, 7, 10) + timedelta(days=i) for i in range(15)]]
-                date_options = "\n".join([f"{i+1}. {date}" for i, date in enumerate(dates)])
+                dates = [datetime(2025, 7, 10) + timedelta(days=i) for i in range(15)]
+                date_options = "\n".join([f"{i+1}. {date.strftime('%d/%m')}" for i, date in enumerate(dates)])
                 reply = f"Has elegido {state['service']} con {state['doctor']}. Elige una fecha:\n{date_options}\nEscribe el número (1-15)."
                 state["step"] = "date_confirm"
             else:
-                reply = "Número inválido. Elige un número entre 1 y " + str(len(SERVICES)) + "."
+                reply = f"Número inválido. Elige un número entre 1 y {len(SERVICES)}."
         except ValueError:
             reply = "Por favor, escribe un número válido."
     elif state["step"] == "date_confirm":
@@ -96,6 +96,7 @@ def webhook():
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
                 data = response.json()
+                logging.info(f"📅 Datos de API para {state['date']}: {data}")
                 target_date = dates[choice].strftime("%Y-%m-%d")
                 available_slots = []
                 for day in data:
@@ -104,7 +105,7 @@ def webhook():
                 if available_slots:
                     slots_text = "\n".join([f"{i+1}. {slot['start_date'][11:16]}-{slot['end_date'][11:16]}" for i, slot in enumerate(available_slots)])
                     note = "(Solo 08:00-12:00)" if dates[choice].weekday() == 6 else ""
-                    reply = f"Fechas disponibles el {state['date']} {note}:\n{slots_text}\nElige un horario escribiendo el número (1-{len(available_slots)})."
+                    reply = f"Horarios disponibles el {state['date']} {note}:\n{slots_text}\nElige un horario escribiendo el número (1-{len(available_slots)})."
                     state["step"] = "slot_confirm"
                 else:
                     reply = f"No hay horarios disponibles el {state['date']}. Elige otra fecha."
@@ -112,7 +113,7 @@ def webhook():
             else:
                 reply = "Número inválido. Elige un número entre 1 y 15."
         except (ValueError, requests.RequestException) as e:
-            logging.error(f"❌ Error: {e}")
+            logging.error(f"❌ Error al obtener horarios: {e}")
             reply = "Error al obtener horarios. Intenta de nuevo."
     elif state["step"] == "slot_confirm":
         try:
@@ -121,13 +122,14 @@ def webhook():
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
+            logging.info(f"📅 Datos de API en slot_confirm: {data}")
             target_date = datetime.strptime(state["date"], "%d/%m").replace(2025).strftime("%Y-%m-%d")
             available_slots = []
             for day in data:
                 if day["date"] == target_date:
                     available_slots.extend(day["available_slots"])
             if 0 <= choice < len(available_slots):
-                selected_slot = available_slots[choice]["start_date"][11:16] + "-" + available_slots[choice]["end_date"][11:16]
+                selected_slot = f"{available_slots[choice]['start_date'][11:16]}-{available_slots[choice]['end_date'][11:16]}"
                 reply = f"¡Cita confirmada con {state['doctor']} el {state['date']} a las {selected_slot} (simulación). ¡Gracias!"
                 state["step"] = "start"
                 state["service"] = None
@@ -137,10 +139,11 @@ def webhook():
             else:
                 reply = f"Número inválido. Elige un número entre 1 y {len(available_slots)}."
         except (ValueError, requests.RequestException) as e:
-            logging.error(f"❌ Error: {e}")
+            logging.error(f"❌ Error al confirmar cita: {e}")
             reply = "Error al confirmar la cita. Intenta de nuevo."
     else:
         reply = "Algo salió mal. Escribe 'sí' para empezar de nuevo."
+        state["step"] = "start"
 
     twilio_resp.message(reply)
     return str(twilio_resp)

@@ -5,6 +5,7 @@ import requests
 from dotenv import load_dotenv
 import logging
 import re
+from collections import defaultdict
 
 # Configuración de logs
 logging.basicConfig(level=logging.INFO)
@@ -39,16 +40,36 @@ SERVICES = {
     "medicina estética": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3}
 }
 
+# Estado de los usuarios (simplificado, en memoria)
+user_states = defaultdict(lambda: {"waiting_for_slot": False, "doctor": None, "date": None})
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     incoming_msg = request.form.get("Body", "").strip().lower()
     sender = request.form.get("From")
-    logging.info(f"📩 Mensaje recibido de {sender}: {incoming_msg}")
+    state = user_states[sender]
+    logging.info(f"📩 Mensaje recibido de {sender}: {incoming_msg}, Estado: {state}")
 
     if not incoming_msg:
         logging.warning("⚠️ Mensaje vacío recibido")
         twilio_resp = MessagingResponse()
         twilio_resp.message("Por favor, envía un mensaje válido.")
+        return str(twilio_resp)
+
+    twilio_resp = MessagingResponse()
+
+    # Si está esperando un horario
+    if state["waiting_for_slot"]:
+        match = re.match(r"(\d{2}:\d{2}-\d{2}:\d{2})", incoming_msg)
+        if match:
+            selected_slot = match.group(1)
+            reply = f"¡Cita confirmada con {state['doctor']} el {state['date']} a las {selected_slot} (simulación). Gracias!"
+            state["waiting_for_slot"] = False
+            state["doctor"] = None
+            state["date"] = None
+        else:
+            reply = "Formato de horario incorrecto. Usa 'HH:MM-HH:MM' (ej. '08:30-09:00')."
+        twilio_resp.message(reply)
         return str(twilio_resp)
 
     # Patrón para detectar "agendar [servicio] el [fecha]"
@@ -73,7 +94,10 @@ def webhook():
                         available_slots.extend(day["available_slots"])
                 if available_slots:
                     slots_text = "\n".join([f"- {slot['start_date'][11:16]}-{slot['end_date'][11:16]}" for slot in available_slots])
-                    reply = f"Horarios disponibles con {doctor} el {date}:\n{slots_text}\nPor favor, elige un horario (ej. '08:00-08:30')."
+                    reply = f"Horarios disponibles con {doctor} el {date}:\n{slots_text}\nPor favor, elige un horario (ej. '08:30-09:00')."
+                    state["waiting_for_slot"] = True
+                    state["doctor"] = doctor
+                    state["date"] = date
                 else:
                     reply = f"No hay horarios disponibles con {doctor} el {date}. Intenta otra fecha."
             except Exception as e:
@@ -84,8 +108,6 @@ def webhook():
     else:
         reply = "Por favor, usa el formato: 'Agendar [servicio] el [dd/mm]' (ej. 'Agendar Pediatría el 15/07')."
 
-    # Enviar respuesta a WhatsApp
-    twilio_resp = MessagingResponse()
     twilio_resp.message(reply)
     return str(twilio_resp)
 

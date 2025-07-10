@@ -24,19 +24,19 @@ BOOKLY_API_KEY = "5bc2aa445c35047edb64414952eb53da"  # Usa la clave del plugin
 
 # Mapeo de servicios a staff_id (corregido)
 SERVICES = {
-    "Medicina Familiar": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
-    "Diabetología": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
-    "Geriatría": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
-    "Cuidados Paliativos": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
-    "Inmunología y Reumatología": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
-    "Alergología": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
-    "Pediatría": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
-    "Ginecología": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
-    "Nutrición Clínica": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
-    "Nutrición Pediátrica": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
-    "Cosmetología": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3},
-    "Cosmeatría": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3},
-    "Medicina Estética": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3}
+    "medicina familiar": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
+    "diabetología": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
+    "geriatría": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
+    "cuidados paliativos": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
+    "inmunología y reumatología": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
+    "alergología": {"doctor": "Dr. Jhonny Calahorrano", "staff_id": 1},
+    "pediatría": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
+    "ginecología": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
+    "nutrición clínica": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
+    "nutrición pediátrica": {"doctor": "Dra. Lizbeth Díaz", "staff_id": 4},
+    "cosmetología": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3},
+    "cosmeatría": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3},
+    "medicina estética": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3}
 }
 
 @app.route("/webhook", methods=["POST"])

@@ -4,9 +4,8 @@ import os
 import requests
 from dotenv import load_dotenv
 import logging
-import re
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Configuración de logs
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +42,18 @@ SERVICES = {
 
 # Estado de los usuarios
 user_states = defaultdict(lambda: {"step": "start", "service": None, "doctor": None, "staff_id": None, "date": None})
+
+def get_available_dates(staff_id):
+    url = f"{BOOKLY_API_BASE}/disponibilidad-doctor-{staff_id}?api_key={BOOKLY_API_KEY}"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        dates = [datetime.strptime(day["date"], "%Y-%m-%d").date() for day in data]
+        return sorted(set(dates))[:14]  # Máximo 14 fechas únicas
+    except requests.RequestException as e:
+        logging.error(f"❌ Error al obtener fechas: {e}")
+        return []
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -82,9 +93,12 @@ def webhook():
                 state["service"] = services_list[choice]
                 state["doctor"] = SERVICES[state["service"]]["doctor"]
                 state["staff_id"] = SERVICES[state["service"]]["staff_id"]
-                dates = [datetime(2025, 7, 10) + timedelta(days=i) for i in range(15)]
-                date_options = "\n".join([f"{i+1}. {date.strftime('%d/%m')}" for i, date in enumerate(dates)])
-                reply = f"Has elegido {state['service']} con {state['doctor']}. Elige una fecha:\n{date_options}\nEscribe el número (1-15)."
+                available_dates = get_available_dates(state["staff_id"])
+                if available_dates:
+                    date_options = "\n".join([f"{i+1}. {date.strftime('%d/%m/%Y')}" for i, date in enumerate(available_dates)])
+                    reply = f"Has elegido {state['service']} con {state['doctor']}. Elige una fecha:\n{date_options}\nEscribe el número (1-{len(available_dates)})."
+                else:
+                    reply = f"No hay fechas disponibles para {state['doctor']}. Intenta con otro servicio."
                 state["step"] = "date_confirm"
                 logging.info(f"Transición a 'date_confirm' para {sender}")
             else:
@@ -97,23 +111,22 @@ def webhook():
         logging.info(f"Procesando 'date_confirm' para {sender} con mensaje: {incoming_msg}")
         try:
             choice = int(incoming_msg) - 1
-            dates = [datetime(2025, 7, 10) + timedelta(days=i) for i in range(15)]
-            if 0 <= choice < len(dates):
-                state["date"] = dates[choice].strftime("%d/%m")
+            available_dates = get_available_dates(state["staff_id"])
+            if 0 <= choice < len(available_dates):
+                state["date"] = available_dates[choice].strftime("%d/%m/%Y")
                 url = f"{BOOKLY_API_BASE}/disponibilidad-doctor-{state['staff_id']}?api_key={BOOKLY_API_KEY}"
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
                 data = response.json()
                 logging.info(f"📅 Datos de API para {state['date']}: {data}")
-                target_date = dates[choice].strftime("%Y-%m-%d")
+                target_date = available_dates[choice].strftime("%Y-%m-%d")
                 available_slots = []
                 for day in data:
                     if day["date"] == target_date:
                         available_slots.extend(day["available_slots"])
                 if available_slots:
                     slots_text = "\n".join([f"{i+1}. {slot['start_date'][11:16]}-{slot['end_date'][11:16]}" for i, slot in enumerate(available_slots)])
-                    note = "(Solo 08:00-12:00)" if dates[choice].weekday() == 6 else ""
-                    reply = f"Horarios disponibles el {state['date']} {note}:\n{slots_text}\nElige un horario escribiendo el número (1-{len(available_slots)})."
+                    reply = f"Horarios disponibles el {state['date']}:\n{slots_text}\nElige un horario escribiendo el número (1-{len(available_slots)})."
                     state["step"] = "slot_confirm"
                     logging.info(f"Transición a 'slot_confirm' para {sender}")
                 else:
@@ -121,7 +134,7 @@ def webhook():
                     logging.info(f"Sin horarios disponibles el {state['date']} para {sender}")
                     state["step"] = "date_confirm"
             else:
-                reply = "Número inválido. Elige un número entre 1 y 15."
+                reply = f"Número inválido. Elige un número entre 1 y {len(available_dates)}."
                 logging.info(f"Número inválido en 'date_confirm' para {sender}")
         except (ValueError, requests.RequestException) as e:
             logging.error(f"❌ Error al obtener horarios: {e}")
@@ -135,7 +148,7 @@ def webhook():
             response.raise_for_status()
             data = response.json()
             logging.info(f"📅 Datos de API en slot_confirm: {data}")
-            target_date = datetime.strptime(state["date"], "%d/%m").replace(2025).strftime("%Y-%m-%d")
+            target_date = datetime.strptime(state["date"], "%d/%m/%Y").strftime("%Y-%m-%d")
             available_slots = []
             for day in data:
                 if day["date"] == target_date:
@@ -162,6 +175,7 @@ def webhook():
         logging.info(f"Estado inválido reseteado para {sender}")
 
     twilio_resp.message(reply)
+    logging.info(f"📤 Mensaje enviado a {sender}: {reply[:50]}... (longitud: {len(reply)})")
     return str(twilio_resp)
 
 if __name__ == "__main__":

@@ -41,8 +41,8 @@ SERVICES = {
     "medicina estética": {"doctor": "Cosm. Jessica Gavilanes", "staff_id": 3}
 }
 
-# Estado de los usuarios
-user_states = defaultdict(lambda: {"waiting_for_slot": False, "doctor": None, "date": None, "staff_id": None, "service": None})
+# Estado de los usuarios (simplificado)
+user_states = defaultdict(lambda: {"step": "start", "service": None, "doctor": None, "staff_id": None, "date": None})
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -59,91 +59,88 @@ def webhook():
 
     twilio_resp = MessagingResponse()
 
-    # Si está esperando un horario
-    if state["waiting_for_slot"]:
-        match = re.match(r"(\d{2}:\d{2}-\d{2}:\d{2})", incoming_msg)
-        if match:
-            selected_slot = match.group(1)
-            staff_id = state["staff_id"]
-            url = f"{BOOKLY_API_BASE}/disponibilidad-doctor-{staff_id}?api_key={BOOKLY_API_KEY}"
-            try:
+    # Flujo guiado por pasos
+    if state["step"] == "start":
+        reply = "¡Hola! ¿Te gustaría agendar una cita? Responde con 'sí' para continuar."
+        state["step"] = "service_select"
+    elif state["step"] == "service_select":
+        if incoming_msg == "sí" or incoming_msg == "si":
+            service_options = "\n".join([f"{i+1}. {service}" for i, service in enumerate(SERVICES.keys())])
+            reply = f"Genial! Elige un servicio:\n{service_options}\nEscribe el número (1-{len(SERVICES)})."
+            state["step"] = "service_confirm"
+        else:
+            reply = "Por favor, responde 'sí' para agendar una cita."
+    elif state["step"] == "service_confirm":
+        try:
+            choice = int(incoming_msg) - 1
+            services_list = list(SERVICES.keys())
+            if 0 <= choice < len(services_list):
+                state["service"] = services_list[choice]
+                state["doctor"] = SERVICES[state["service"]]["doctor"]
+                state["staff_id"] = SERVICES[state["service"]]["staff_id"]
+                dates = [d.strftime("%d/%m") for d in [datetime(2025, 7, 10) + timedelta(days=i) for i in range(15)]]
+                date_options = "\n".join([f"{i+1}. {date}" for i, date in enumerate(dates)])
+                reply = f"Has elegido {state['service']} con {state['doctor']}. Elige una fecha:\n{date_options}\nEscribe el número (1-15)."
+                state["step"] = "date_confirm"
+            else:
+                reply = "Número inválido. Elige un número entre 1 y " + str(len(SERVICES)) + "."
+        except ValueError:
+            reply = "Por favor, escribe un número válido."
+    elif state["step"] == "date_confirm":
+        try:
+            choice = int(incoming_msg) - 1
+            dates = [datetime(2025, 7, 10) + timedelta(days=i) for i in range(15)]
+            if 0 <= choice < len(dates):
+                state["date"] = dates[choice].strftime("%d/%m")
+                url = f"{BOOKLY_API_BASE}/disponibilidad-doctor-{state['staff_id']}?api_key={BOOKLY_API_KEY}"
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
                 data = response.json()
-                logging.info(f"📅 Datos de API para verificación: {data}")
-                current_slots = []
-                target_date = f"2025-{state['date'].split('/')[1]}-{state['date'].split('/')[0]}"
+                target_date = dates[choice].strftime("%Y-%m-%d")
+                available_slots = []
                 for day in data:
                     if day["date"] == target_date:
-                        current_slots.extend(day["available_slots"])
-                selected_slot_full = f"{target_date} {selected_slot[:5]}:00"
-                if any(slot["start_date"] == selected_slot_full for slot in current_slots):
-                    reply = f"¡Cita confirmada con {state['doctor']} el {state['date']} a las {selected_slot} (simulación). Gracias!"
+                        available_slots.extend(day["available_slots"])
+                if available_slots:
+                    slots_text = "\n".join([f"{i+1}. {slot['start_date'][11:16]}-{slot['end_date'][11:16]}" for i, slot in enumerate(available_slots)])
+                    note = "(Solo 08:00-12:00)" if dates[choice].weekday() == 6 else ""
+                    reply = f"Fechas disponibles el {state['date']} {note}:\n{slots_text}\nElige un horario escribiendo el número (1-{len(available_slots)})."
+                    state["step"] = "slot_confirm"
                 else:
-                    slots_text = "\n".join([f"- {slot['start_date'][11:16]}-{slot['end_date'][11:16]}" for slot in current_slots])
-                    reply = f"El horario {selected_slot} ya no está disponible. Elige otro de:\n{slots_text}"
-            except requests.RequestException as e:
-                logging.error(f"❌ Error al verificar disponibilidad: {e}")
-                reply = "Error al verificar disponibilidad. Intenta más tarde."
-            except Exception as e:
-                logging.error(f"❌ Error inesperado: {e}")
-                reply = "Error interno. Contacta al soporte."
-            state["waiting_for_slot"] = False
-            state["doctor"] = None
-            state["date"] = None
-            state["staff_id"] = None
-            state["service"] = None
-        else:
-            reply = "Formato de horario incorrecto. Usa 'HH:MM-HH:MM' (ej. '08:30-09:00')."
-        twilio_resp.message(reply)
-        return str(twilio_resp)
-
-    # Patrón para detectar "agendar [servicio] el [fecha]"
-    match = re.match(r"agendar\s+(.+?)\s+el\s+(\d{1,2}/\d{1,2})", incoming_msg)
-    if match:
-        service = match.group(1).strip()
-        date_str = match.group(2)
-        try:
-            day, month = map(int, date_str.split('/'))
-            today = datetime(2025, 7, 10)  # Fecha actual según el sistema
-            target_date = datetime(2025, month, day)
-            max_date = today + timedelta(days=14)
-            if target_date < today or target_date > max_date:
-                reply = f"Fecha inválida. Elige una fecha entre {today.strftime('%d/%m')} y {max_date.strftime('%d/%m')}."
-            elif service in SERVICES:
-                staff_id = SERVICES[service]["staff_id"]
-                doctor = SERVICES[service]["doctor"]
-                url = f"{BOOKLY_API_BASE}/disponibilidad-doctor-{staff_id}?api_key={BOOKLY_API_KEY}"
-                try:
-                    response = requests.get(url, timeout=10)
-                    response.raise_for_status()
-                    data = response.json()
-                    logging.info(f"📅 Datos de API iniciales: {data}")
-                    available_slots = []
-                    target_date_str = target_date.strftime("%Y-%m-%d")
-                    for day in data:
-                        if day["date"] == target_date_str:
-                            available_slots.extend(day["available_slots"])
-                    if available_slots:
-                        slots_text = "\n".join([f"- {slot['start_date'][11:16]}-{slot['end_date'][11:16]}" for slot in available_slots])
-                        note = "(Solo 08:00-12:00)" if target_date.weekday() == 6 else ""  # Domingo
-                        reply = f"Horarios disponibles con {doctor} el {date_str} {note}:\n{slots_text}\nElige un horario (ej. '08:30-09:00')."
-                        state["waiting_for_slot"] = True
-                        state["doctor"] = doctor
-                        state["date"] = date_str
-                        state["staff_id"] = staff_id
-                        state["service"] = service
-                    else:
-                        reply = f"No hay horarios disponibles con {doctor} el {date_str}. Intenta otra fecha."
-                except requests.RequestException as e:
-                    logging.error(f"❌ Error al consultar Bookly API: {e}")
-                    reply = "Error al obtener horarios. Intenta más tarde."
+                    reply = f"No hay horarios disponibles el {state['date']}. Elige otra fecha."
+                    state["step"] = "date_confirm"
             else:
-                reply = "Servicio no reconocido. Servicios disponibles:\n" + "\n".join(SERVICES.keys())
-        except ValueError:
-            reply = "Formato de fecha incorrecto. Usa 'dd/mm' (ej. '15/07')."
+                reply = "Número inválido. Elige un número entre 1 y 15."
+        except (ValueError, requests.RequestException) as e:
+            logging.error(f"❌ Error: {e}")
+            reply = "Error al obtener horarios. Intenta de nuevo."
+    elif state["step"] == "slot_confirm":
+        try:
+            choice = int(incoming_msg) - 1
+            url = f"{BOOKLY_API_BASE}/disponibilidad-doctor-{state['staff_id']}?api_key={BOOKLY_API_KEY}"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            target_date = datetime.strptime(state["date"], "%d/%m").replace(2025).strftime("%Y-%m-%d")
+            available_slots = []
+            for day in data:
+                if day["date"] == target_date:
+                    available_slots.extend(day["available_slots"])
+            if 0 <= choice < len(available_slots):
+                selected_slot = available_slots[choice]["start_date"][11:16] + "-" + available_slots[choice]["end_date"][11:16]
+                reply = f"¡Cita confirmada con {state['doctor']} el {state['date']} a las {selected_slot} (simulación). ¡Gracias!"
+                state["step"] = "start"
+                state["service"] = None
+                state["doctor"] = None
+                state["staff_id"] = None
+                state["date"] = None
+            else:
+                reply = f"Número inválido. Elige un número entre 1 y {len(available_slots)}."
+        except (ValueError, requests.RequestException) as e:
+            logging.error(f"❌ Error: {e}")
+            reply = "Error al confirmar la cita. Intenta de nuevo."
     else:
-        reply = "Por favor, usa el formato: 'Agendar [servicio] el [dd/mm]' (ej. 'Agendar Pediatría el 15/07')."
+        reply = "Algo salió mal. Escribe 'sí' para empezar de nuevo."
 
     twilio_resp.message(reply)
     return str(twilio_resp)
